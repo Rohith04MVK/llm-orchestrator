@@ -30,11 +30,10 @@ except Exception as e:
 
 # Service information for orchestrator
 SERVICE_INFO = {
-    # "pdf-reader-service":           {"image": "pdf-reader-app",          "needs_api_key": False},
-    "summarizer-service":           {"image": "summarizer-app",          "needs_api_key": True},
-    "translator-service":           {"image": "translator-app",          "needs_api_key": True},
-    "anonymizer-service":           {"image": "anonymizer-app",          "needs_api_key": True},
-    "med-term-translator-service":  {"image": "med-term-translator-app", "needs_api_key": True},
+    "summarizer-service":           {"image": "summarizer-app",          "needs_api_key": True, "description": "Generates a concise summary of the input text."},
+    "translator-service":           {"image": "translator-app",          "needs_api_key": True, "description": "Translates text into a specified target language."},
+    "anonymizer-service":           {"image": "anonymizer-app",          "needs_api_key": True, "description": "Attempts to identify and mask PII (names, dates, addresses, MRNs, etc.) in text."},
+    "med-term-translator-service":  {"image": "med-term-translator-app", "needs_api_key": True, "description": "Attempts to simplify complex medical terms in text into layperson's language."},
 }
 
 LLM_PROMPT_TEMPLATE = """

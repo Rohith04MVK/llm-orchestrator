@@ -1,14 +1,16 @@
 import sys
-from orchestrator import run_pipeline
+from orchestrator import run_pipeline, SERVICE_INFO
 
 if __name__ == "__main__":
-    # --- Get User Input ---
+    # Get User Input
     print("="*40)
+    print("Available Services:")
+    for service_name, service_details in SERVICE_INFO.items():
+        print(f" - {service_name}: {service_details['description']}")
     print(" LLM Container Orchestrator ")
     print("="*40)
 
-    task_description = input(
-        "Enter your request (e.g., 'Summarize this and translate to German'): ")
+    task_description = input("Enter your request: ")
 
     print("\nEnter the text content below. Press Ctrl+D (Linux/macOS) or Ctrl+Z then Enter (Windows) when done:")
     print("-"*40)
