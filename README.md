@@ -30,7 +30,7 @@ The orchestrator uses a central LLM to plan the execution of tasks across multip
 2.  **Clone the repository:**
 
     ```bash
-    git clone <repository_url>
+    git clone https://github.com/Rohith04MVK/llm-orchestrator
     cd llm-orchestrator
     ```
 
