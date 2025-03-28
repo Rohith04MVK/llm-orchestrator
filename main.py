@@ -7,7 +7,8 @@ if __name__ == "__main__":
     print(" LLM Container Orchestrator ")
     print("="*40)
 
-    task_description = input("Enter your request (e.g., 'Summarize this and translate to German'): ")
+    task_description = input(
+        "Enter your request (e.g., 'Summarize this and translate to German'): ")
 
     print("\nEnter the text content below. Press Ctrl+D (Linux/macOS) or Ctrl+Z then Enter (Windows) when done:")
     print("-"*40)
@@ -34,7 +35,7 @@ if __name__ == "__main__":
         print("Final Output:")
         print(final_output)
     else:
-         # Should ideally be covered by error_message, but as a fallback
+        # Should ideally be covered by error_message, but as a fallback
         print(" Pipeline Execution Status Unknown ")
         print("="*40)
         print("An unexpected issue occurred. Check orchestrator logs.")

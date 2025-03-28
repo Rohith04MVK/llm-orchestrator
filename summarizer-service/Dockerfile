@@ -1,5 +1,5 @@
 FROM python:3.9-slim
 WORKDIR /app
 COPY summarize.py .
-# No external libraries needed for this dummy script
+RUN pip install --no-cache-dir google-generativeai dotenv
 CMD ["python", "summarize.py"]

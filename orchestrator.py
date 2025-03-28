@@ -6,253 +6,291 @@ import shutil
 import uuid
 import re
 import google.generativeai as genai
-from dotenv import load_dotenv
+from dotenv import load_dotenv  # <--- Import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # --- Configuration ---
-# Configure the Google AI client using the environment variable
 try:
-    load_dotenv()
-    google_api_key = os.environ.get("GOOGLE_API_KEY")
-    if not google_api_key:
-        raise ValueError("GOOGLE_API_KEY environment variable not set.")
-    genai.configure(api_key=google_api_key)
-    # --- OpenAI client initialization removed ---
-    # client = OpenAI()
+    # Now, os.getenv will read from the environment populated by load_dotenv
+    GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+    if not GOOGLE_API_KEY:
+        raise ValueError(
+            "GOOGLE_API_KEY not found in .env file or environment variables.")
+    genai.configure(api_key=GOOGLE_API_KEY)
+    print("[Orchestrator] LLM Engine configured successfully.")
 except ValueError as e:
-    print(f"Configuration Error: {e}")
-    # You might want to exit here if the key is essential
-    # sys.exit(1)
+    print(f"[Orchestrator] Configuration Error: {e}")
+    GOOGLE_API_KEY = None  # Ensure it's None if config fails
 except Exception as e:
-    print(f"An unexpected error occurred during Google AI configuration: {e}")
-    # sys.exit(1)
+    print(
+        f"[Orchestrator] An unexpected error occurred during LLM Engine configuration: {e}")
+    GOOGLE_API_KEY = None
 
-
-# Map descriptive service names (from LLM) to actual Docker image names
-SERVICE_TO_IMAGE_MAP = {
-    "summarizer-service": "summarizer-app",
-    "translator-service": "translator-app",
-    # Add other services here
+# Service information for orchestrator
+SERVICE_INFO = {
+    # "pdf-reader-service":           {"image": "pdf-reader-app",          "needs_api_key": False},
+    "summarizer-service":           {"image": "summarizer-app",          "needs_api_key": True},
+    "translator-service":           {"image": "translator-app",          "needs_api_key": True},
+    "anonymizer-service":           {"image": "anonymizer-app",          "needs_api_key": True},
+    "med-term-translator-service":  {"image": "med-term-translator-app", "needs_api_key": True},
 }
 
-# --- Prompt remains largely the same, but ensure it strongly requests ONLY JSON ---
 LLM_PROMPT_TEMPLATE = """
 System Task:
-You are a planning assistant. Analyze the user's request and determine the sequence of tools needed.
+You are a planning assistant. Analyze the user's request and determine the sequence of tools needed from the list below.
 Respond ONLY with a valid JSON list containing the names of the tools in the correct order.
 Do not include any other text, explanations, or markdown formatting (like ```json ... ```) around the JSON list.
 
 Available Tools:
-- 'summarizer-service': Creates a short summary of text.
-- 'translator-service': Translates text to a specified language. Needs the target language (e.g., 'German', 'Spanish', 'French').
+- 'anonymizer-service': Attempts to identify and mask PII (names, dates, addresses, MRNs, etc.) in text using an LLM. Replace PII with placeholders like [NAME].
+- 'med-term-translator-service': Attempts to simplify complex medical terms in text into layperson's language using an LLM.
+- 'summarizer-service': Generates a concise summary of the input text using an LLM.
+- 'translator-service': Translates text into a specified target language using an LLM. Needs the target language (e.g., 'German', 'Spanish', 'French', 'Japanese').
 
 User Request: {user_request_text}
 
 Your Plan (JSON list only):
 """
 
-# --- Helper Functions ---
 
 def get_llm_plan(user_request):
-    """Calls the Google Generative AI LLM to get the execution plan."""
-    print(f"\n[Orchestrator] Asking Google AI for plan for: '{user_request}'")
-
-    if not google_api_key: # Check if configuration failed earlier
-         print("[Orchestrator] Error: Google AI API Key not configured.")
-         return None
-
+    print(f"\n[Orchestrator] Asking LLM Engine for plan for: '{user_request}'")
+    if not GOOGLE_API_KEY:
+        print("[Orchestrator] Error: LLM Engine API Key not configured (check .env).")
+        return None
     try:
-        # --- Use Google Generative AI ---
-        # Model Selection: gemini-1.5-flash is fast and capable, gemini-pro is also good.
-        # Use gemini-1.5-pro if flash isn't sufficient or available.
-        model = genai.GenerativeModel('gemini-2.0-flash')
-
-        # Configuration for generation - enforce JSON output
+        model = genai.GenerativeModel('gemini-1.5-flash')
         generation_config = genai.GenerationConfig(
-            temperature=0.0, # Deterministic planning
-            response_mime_type="application/json" # Request JSON output directly
+            temperature=0.0,
+            response_mime_type="application/json"
         )
-
-        full_prompt = LLM_PROMPT_TEMPLATE.format(user_request_text=user_request)
-
-        # Make the API call
+        full_prompt = LLM_PROMPT_TEMPLATE.format(
+            user_request_text=user_request)
         response = model.generate_content(
-            full_prompt,
-            generation_config=generation_config
-        )
-
-        # --- Parse Google AI Response ---
-        # The response.text should contain the JSON string because of response_mime_type
+            full_prompt, generation_config=generation_config)
         raw_json_response = response.text
-        print(f"[Orchestrator] Google AI raw response text: {raw_json_response}")
-
-        try:
-            plan = json.loads(raw_json_response)
-            # Basic validation: Check if it's a list of strings
-            if isinstance(plan, list) and all(isinstance(item, str) for item in plan):
-                 print(f"[Orchestrator] Google AI plan parsed: {plan}")
-                 return plan
-            else:
-                 print("[Orchestrator] Error: LLM response is JSON but not a list of strings.")
-                 return None
-        except json.JSONDecodeError as json_err:
-            print(f"[Orchestrator] Error: Failed to parse JSON from Google AI response. Error: {json_err}")
-            print(f"Raw response was: {raw_json_response}")
+        print(
+            f"[Orchestrator] LLM Engine raw response text: {raw_json_response}")
+        plan = json.loads(raw_json_response)
+        if isinstance(plan, list) and all(isinstance(item, str) for item in plan):
+            print(f"[Orchestrator] LLM Engine plan parsed: {plan}")
+            return plan
+        else:
+            print(
+                "[Orchestrator] Error: LLM response is JSON but not a list of strings.")
             return None
-        except Exception as e: # Catch other potential issues during parsing/validation
-             print(f"[Orchestrator] Error processing Google AI response JSON: {e}")
-             return None
-
+    except json.JSONDecodeError as json_err:
+        print(
+            f"[Orchestrator] Error: Failed to parse JSON from LLM Engine response. Error: {json_err}")
+        print(f"Raw response was: {raw_json_response}")
+        return None
     except Exception as e:
-        # Catch errors during API call or model instantiation
-        print(f"[Orchestrator] Error calling Google Generative AI: {e}")
-        # You might want to inspect the specific exception type for more details
-        # e.g., if it's an authentication error, permission error, etc.
+        print(
+            f"[Orchestrator] Error calling or processing Google Generative AI response: {e}")
         return None
 
 
 def extract_language(user_request):
-    """Simple language extraction (same as before)."""
     match = re.search(r'translate to (\w+)', user_request, re.IGNORECASE)
-    lang_name = match.group(1).lower() if match else None
-    lang_map = {"german": "de", "french": "fr", "spanish": "es", "japanese": "ja"} # Add more
-    return lang_map.get(lang_name, "en")
+    if not match:
+        return 'en'  # Default
+    lang_name = match.group(1).lower()
+    lang_map = {"german": "de", "french": "fr",
+                "spanish": "es", "japanese": "ja", "english": "en"}
+    return lang_map.get(lang_name, 'en')  # Default to 'en' if name unknown
 
 
-def run_docker_task(image_name, host_data_dir, env_vars=None):
-    """Runs a Docker container for a single task (same as before)."""
+def run_docker_task(service_name, host_data_dir, env_vars=None):
+    """Runs a Docker container, passing API key from host env (via dotenv) if needed."""
+    if service_name not in SERVICE_INFO:
+        print(
+            f"[Orchestrator] Error: Unknown service '{service_name}'. Skipping.")
+        return False
+
+    service_details = SERVICE_INFO[service_name]
+    image_name = service_details["image"]
     container_name = f"{image_name}-{uuid.uuid4().hex[:8]}"
-    # Ensure absolute path for volume mounting, especially robust on different OS
     abs_host_data_dir = os.path.abspath(host_data_dir)
     volume_mount = f"{abs_host_data_dir}:/data"
-    command = ["docker", "run", "--rm", "--name", container_name, "-v", volume_mount]
 
-    if env_vars:
-        for key, value in env_vars.items():
-            command.extend(["-e", f"{key}={value}"])
+    command = ["docker", "run", "--rm", "--name",
+               container_name, "-v", volume_mount]
 
-    command.append(image_name)
+    # Prepare combined environment variables
+    final_env_vars = env_vars.copy() if env_vars else {}
 
-    print(f"\n[Orchestrator] Running container: {' '.join(command)}")
+    # --- Check if service needs the key and if we have it ---
+    if service_details["needs_api_key"]:
+        # GOOGLE_API_KEY was loaded by load_dotenv() into the orchestrator's environment
+        host_api_key = os.getenv("GOOGLE_API_KEY")  # Read it again here
+        if host_api_key:
+            # Add it to the dict that will be passed to the container
+            final_env_vars["GOOGLE_API_KEY"] = host_api_key
+            # No need to print the key itself here for security
+            print(
+                f"[Orchestrator] Preparing to pass GOOGLE_API_KEY to container '{container_name}'.")
+        else:
+            # This case should ideally be caught earlier, but as a safeguard
+            print(
+                f"[Orchestrator] Error: Service '{service_name}' needs API key, but GOOGLE_API_KEY is not loaded/found. Skipping container.")
+            return False
+
+    for key, value in final_env_vars.items():
+        # Pass the variable using -e KEY=VALUE
+        command.extend(["-e", f"{key}={value}"])
+
+    command.append(image_name)  # Add image name at the end
+
+    # Don't log full command with keys
+    print(
+        f"\n[Orchestrator] Running container command: docker run ... {image_name}")
     try:
-        result = subprocess.run(command, check=True, text=True, capture_output=True, encoding='utf-8')
-        # Print stdout/stderr only if they contain content
+        result = subprocess.run(
+            command, check=True, text=True, capture_output=True, encoding='utf-8')
+        # (stdout/stderr logging remains the same)
         stdout_lines = result.stdout.strip().splitlines()
         stderr_lines = result.stderr.strip().splitlines()
         if stdout_lines:
-             print(f"[Orchestrator] Container '{container_name}' stdout:")
-             for line in stdout_lines: print(f"  > {line}")
-        if stderr_lines:
-             print(f"[Orchestrator] Container '{container_name}' stderr:")
-             for line in stderr_lines: print(f"  > {line}")
-
-        print(f"[Orchestrator] Container '{container_name}' completed successfully.")
+            print(f"[Orchestrator] Container '{container_name}' stdout:")
+            for line in stdout_lines:
+                print(f"  > {line}")
+        if stderr_lines and not all('log messages before' in line for line in stderr_lines):
+            print(f"[Orchestrator] Container '{container_name}' stderr:")
+            for line in stderr_lines:
+                print(f"  > {line}")
+        print(
+            f"[Orchestrator] Container '{container_name}' completed successfully.")
         return True
     except subprocess.CalledProcessError as e:
-        print(f"[Orchestrator] Error running container '{container_name}'. Return code: {e.returncode}")
-        # Decode stderr/stdout if they are bytes
+        # (Error handling remains the same)
+        print(
+            f"[Orchestrator] Error running container '{container_name}'. Return code: {e.returncode}")
         stderr_output = e.stderr.strip() if e.stderr else "N/A"
         stdout_output = e.stdout.strip() if e.stdout else "N/A"
         print(f"Stderr:\n{stderr_output}")
         print(f"Stdout:\n{stdout_output}")
         return False
     except FileNotFoundError:
-         print(f"[Orchestrator] Error: 'docker' command not found. Is Docker installed and in PATH?")
-         return False
+        print(
+            "[Orchestrator] Error: 'docker' command not found. Is Docker installed and in PATH?")
+        return False
     except Exception as e:
-        print(f"[Orchestrator] Unexpected error running container '{container_name}': {e}")
+        print(
+            f"[Orchestrator] Unexpected error running container '{container_name}': {e}")
         return False
 
-# --- Main Orchestration Logic (run_pipeline) ---
-# This function remains the same as before, as it interacts with the results
-# of get_llm_plan and run_docker_task, whose interfaces haven't changed.
-# No modification needed here unless you change the function signatures above.
 
-def run_pipeline(user_request, input_text):
-    """Orchestrates the pipeline based on LLM plan."""
-
-    # 1. Get plan from LLM
+def run_pipeline(user_request, initial_input_content=None, initial_input_filepath=None):
+    """Orchestrates the pipeline based on LLM plan, handles text or file input."""
+    # Check if API key loaded correctly
+    if not GOOGLE_API_KEY:
+        return None, "LLM Engine API Key (GOOGLE_API_KEY) is not configured (check .env)."
+    # Get plan from LLM
     plan = get_llm_plan(user_request)
     if not plan:
-        print("[Orchestrator] Failed to get a valid plan from LLM.")
-        return None, "Failed to get LLM plan."
+        return None, "Failed to get a valid plan from LLM."
 
-    # Filter plan to only include known services
-    valid_steps = [step for step in plan if step in SERVICE_TO_IMAGE_MAP]
+    # Filter plan & validate steps
+    valid_steps = [step for step in plan if step in SERVICE_INFO]
     if not valid_steps:
-        print("[Orchestrator] LLM plan contains no known services.")
-        return None, "LLM plan had no actionable steps."
+        return None, "LLM plan contains no known/actionable services."
     if len(valid_steps) != len(plan):
-        print(f"[Orchestrator] Warning: Some steps from LLM plan were ignored: {set(plan) - set(valid_steps)}")
+        ignored = set(plan) - set(valid_steps)
+        print(
+            f"[Orchestrator] Warning: Ignored unknown steps from LLM plan: {ignored}")
 
     print(f"[Orchestrator] Executing plan: {valid_steps}")
 
-    # 2. Prepare temporary directory for data exchange
+    # 2. Prepare temporary directory and initial input
     temp_dir = tempfile.mkdtemp(prefix="llm_orch_run_")
     print(f"[Orchestrator] Created temporary directory: {temp_dir}")
 
-    current_input_file = os.path.join(temp_dir, "input.txt")
+    current_input_file = os.path.join(
+        temp_dir, "input.txt")  # Default input name
     current_output_file = os.path.join(temp_dir, "output.txt")
+    is_first_step_pdf = valid_steps[0] == "pdf-reader-service"
 
     try:
-        # Write initial input
-        with open(current_input_file, 'w', encoding='utf-8') as f:
-            f.write(input_text)
+        if is_first_step_pdf:
+            if initial_input_filepath and os.path.exists(initial_input_filepath):
+                pdf_input_in_container = os.path.join(temp_dir, "input.pdf")
+                shutil.copyfile(initial_input_filepath, pdf_input_in_container)
+                print(
+                    f"[Orchestrator] Copied input PDF '{initial_input_filepath}' to '{pdf_input_in_container}' for pdf-reader-service.")
+            else:
+                raise ValueError(
+                    "PDF Reader is the first step, but a valid input PDF file path was not provided.")
+        elif initial_input_content:
+            with open(current_input_file, 'w', encoding='utf-8') as f:
+                f.write(initial_input_content)
+            print(
+                f"[Orchestrator] Wrote initial text content to '{current_input_file}'.")
+        else:
+            print("[Orchestrator] Warning: First step requires text input, but no initial content provided. Starting with empty input.")
+            with open(current_input_file, 'w', encoding='utf-8') as f:
+                f.write("")
 
-        # 3. Execute steps in sequence
         for i, service_name in enumerate(valid_steps):
-            print(f"\n[Orchestrator] --- Step {i+1}: {service_name} ---")
-            image_name = SERVICE_TO_IMAGE_MAP[service_name]
-            env_vars = {}
+            print(
+                f"\n[Orchestrator] --- Step {i+1}/{len(valid_steps)}: {service_name} ---")
 
-            # Special handling for services needing extra args
+            if i > 0 or not is_first_step_pdf:
+                if os.path.exists(current_output_file):
+                    os.rename(current_output_file, current_input_file)
+                    print(
+                        f"[Orchestrator] Renamed previous output '{current_output_file}' to current input '{current_input_file}'.")
+                elif i > 0:
+                    raise FileNotFoundError(
+                        f"Input file '{current_input_file}' missing for step {service_name}. Expected output from previous step.")
+
+            step_env_vars = {}
             if service_name == "translator-service":
                 lang_code = extract_language(user_request)
-                env_vars['TARGET_LANG'] = lang_code if lang_code else 'en' # Default to 'en'
-                print(f"[Orchestrator] Setting TARGET_LANG={env_vars['TARGET_LANG']} for translator.")
+                step_env_vars['TARGET_LANG'] = lang_code
+                print(
+                    f"[Orchestrator] Setting TARGET_LANG={lang_code} for translator.")
 
-            # Run the container
-            success = run_docker_task(image_name, temp_dir, env_vars)
+            # Run the container using the updated function
+            success = run_docker_task(service_name, temp_dir, step_env_vars)
 
             if not success:
                 error_detail = f"Pipeline failed at step {service_name}."
-                # Try to read partial output for better error reporting
                 try:
                     if os.path.exists(current_output_file):
                         with open(current_output_file, 'r', encoding='utf-8') as f_err:
-                            last_output = f_err.read()
-                        error_detail += f" Last output/error from container:\n{last_output}"
+                            last_output = f_err.read(500)
+                        error_detail += f" Last output/error from container:\n---\n{last_output}\n---"
                 except Exception as read_err:
-                     error_detail += f" (Could not read output file: {read_err})"
+                    error_detail += f" (Could not read output file: {read_err})"
                 print(f"[Orchestrator] {error_detail}. Aborting pipeline.")
                 return None, error_detail
 
-            # Prepare for the next step (if any)
-            if i < len(valid_steps) - 1:
-                if os.path.exists(current_output_file):
-                    os.rename(current_output_file, current_input_file)
-                    print(f"[Orchestrator] Renamed output.txt to input.txt for next step.")
-                else:
-                    err_msg = f"Output file missing after step {service_name}. Aborting."
-                    print(f"[Orchestrator] Error: {err_msg}")
-                    return None, err_msg
-            else:
-                print("[Orchestrator] Final step completed.")
-
-        # 4. Collect final output
         if os.path.exists(current_output_file):
             with open(current_output_file, 'r', encoding='utf-8') as f:
                 final_result = f.read()
-            print("[Orchestrator] Pipeline finished successfully.")
-            return final_result, None # Return result, no error message
+            print("\n[Orchestrator] Pipeline finished successfully.")
+            return final_result, None
         else:
-            err_msg = "Final output file is missing after last step."
+            err_msg = "Final output file ('output.txt') is missing after the last step completion."
+            if os.path.exists(current_input_file) and len(valid_steps) > 1:
+                try:
+                    with open(current_input_file, 'r', encoding='utf-8') as f_prev:
+                        prev_output = f_prev.read(500)
+                    err_msg += f"\nContent of input file for the failed last step:\n---\n{prev_output}\n---"
+                except Exception:
+                    pass
             print(f"[Orchestrator] Error: {err_msg}")
-            # This case might indicate an issue with the last container run,
-            # though run_docker_task should ideally catch failures.
             return None, err_msg
 
+    except Exception as pipeline_err:
+        print(
+            f"[Orchestrator] Pipeline execution failed with unexpected error: {pipeline_err}")
+        return None, f"Pipeline failed: {pipeline_err}"
+
     finally:
-        # 5. Clean up temporary directory
         if temp_dir and os.path.exists(temp_dir):
-            print(f"[Orchestrator] Cleaning up temporary directory: {temp_dir}")
+            print(
+                f"[Orchestrator] Cleaning up temporary directory: {temp_dir}")
             shutil.rmtree(temp_dir, ignore_errors=True)

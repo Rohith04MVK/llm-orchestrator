@@ -41,8 +41,8 @@ try:
 
         Translated Text ({target_lang_name}):"""
 
-        print(f"Calling Google AI to translate to {target_lang_name}...")
-        response = model.generate_content(prompt, generation_config=genai.GenerationConfig(temperature=0.2))
+        print(f"Calling LLM Engine to translate to {target_lang_name}...")
+        response = model.generate_content(prompt, generation_config=genai.GenerationConfig(temperature=1))
         translation = response.text
         # --- End LLM Logic ---
 

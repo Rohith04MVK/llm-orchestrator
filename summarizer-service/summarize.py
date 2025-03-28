@@ -2,7 +2,6 @@ import os
 import sys
 import time
 from dotenv import load_dotenv
-load_dotenv()
 import google.generativeai as genai
 
 print("Summarizer Service (using LLM) starting...")
@@ -11,6 +10,7 @@ input_path = '/data/input.txt'
 output_path = '/data/output.txt'
 
 try:
+    load_dotenv()
     google_api_key = os.environ.get("GOOGLE_API_KEY")
     if not google_api_key:
         raise ValueError("GOOGLE_API_KEY environment variable not set inside container.")
@@ -36,8 +36,8 @@ try:
 
         Summary:"""
 
-        print("Calling Google AI to summarize...")
-        response = model.generate_content(prompt, generation_config=genai.GenerationConfig(temperature=0.3))
+        print("Calling LLM Engine to summarize...")
+        response = model.generate_content(prompt, generation_config=genai.GenerationConfig(temperature=1))
         summary = response.text
         # --- End LLM Logic ---
 
